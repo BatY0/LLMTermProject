@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Prompt Labeler (IFEval & IFBench)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .active-card { border-left: 4px solid #3b82f6 !important; background-color: #f0f9ff; }
+        .logic-pill { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; }
+        .status-done { border-left: 4px solid #10b981; background-color: #f0fdf4; }
+        .status-pending { border-left: 4px solid #f59e0b; background-color: #fffbeb; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen">
+
+    <div class="max-w-[1600px] mx-auto p-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm border">
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">Universal Systematic Labeler</h1>
+                <p class="text-xs text-slate-500">Preparing experimental permutations for ANOVA analysis.</p>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="stats" class="text-sm font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">0 / 0 Completed</div>
+                <input type="file" id="fileInput" class="hidden" accept=".json">
+                <button onclick="document.getElementById('fileInput').click()" class="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-900 transition shadow-sm">Load Master File</button>
+                <button onclick="downloadJSON()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-emerald-700 transition shadow-sm">Export Progress</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Sidebar: Navigation -->
+            <div class="col-span-3 bg-white rounded-xl shadow-sm border h-[82vh] flex flex-col overflow-hidden">
+                <div class="p-3 border-b bg-slate-50 flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-slate-400 tracking-widest uppercase">Prompt Queue</span>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="filterPending" onchange="renderList()" class="rounded text-blue-600 focus:ring-blue-500">
+                        <span class="text-[10px] font-bold text-slate-500 uppercase">Pending Only</span>
+                    </label>
+                </div>
+                <div id="entryList" class="overflow-y-auto flex-grow divide-y divide-slate-100"></div>
+            </div>
+
+            <!-- Main Panel -->
+            <div class="col-span-6 space-y-6 overflow-y-auto h-[82vh] pr-2" id="workspace" style="display:none;">
+                <!-- Source View -->
+                <div class="bg-white p-6 rounded-xl border shadow-sm">
+                    <div class="flex justify-between items-start mb-4">
+                        <h2 class="text-xs font-bold text-slate-400 uppercase tracking-widest">Original Prompt</h2>
+                        <span id="typeBadge" class="text-[10px] px-2 py-0.5 rounded font-bold uppercase"></span>
+                    </div>
+                    <p id="originalPromptText" class="text-base leading-relaxed text-slate-700"></p>
+                </div>
+
+                <!-- Splitting Zone -->
+                <div class="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-2">1. Core Task Content</label>
+                        <textarea id="taskInput" class="w-full border rounded-lg p-3 h-32 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Paste only the instructions (no formatting rules)..."></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-2">2. Rules & Constraints (One per line)</label>
+                        <textarea id="rulesInput" class="w-full border rounded-lg p-3 h-32 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Rule 1&#10;Rule 2..."></textarea>
+                    </div>
+                    <div class="flex justify-end gap-3">
+                        <button onclick="skipEntry()" class="text-slate-500 text-sm font-medium hover:text-slate-800 transition">Skip to Next</button>
+                        <button onclick="saveAndGenerate()" class="bg-blue-600 text-white px-8 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition transform active:scale-95">Generate Permutations</button>
+                    </div>
+                </div>
+
+                <!-- Permutation Previews -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-slate-100 p-3 rounded-lg border">
+                        <h3 class="text-[10px] font-bold text-slate-500 mb-2">XML VERSION</h3>
+                        <pre id="xmlPrev" class="text-[10px] whitespace-pre-wrap max-h-40 overflow-auto"></pre>
+                    </div>
+                    <div class="bg-slate-100 p-3 rounded-lg border">
+                        <h3 class="text-[10px] font-bold text-slate-500 mb-2">JSON VERSION</h3>
+                        <pre id="jsonPrev" class="text-[10px] whitespace-pre-wrap max-h-40 overflow-auto"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar: Metadata Helper -->
+            <div class="col-span-3 space-y-6" id="metadataSidebar" style="display:none;">
+                <div class="bg-white p-4 rounded-xl border shadow-sm">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Verification Metadata</h3>
+
+                    <div class="space-y-4">
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-400 block mb-1">INSTRUCTION IDS</span>
+                            <div id="idList" class="flex flex-wrap gap-1"></div>
+                        </div>
+                        <div id="keywordSection" style="display:none;">
+                            <span class="text-[10px] font-bold text-slate-400 block mb-1">TARGET KEYWORDS (IFBench)</span>
+                            <div id="kwList" class="flex flex-wrap gap-1"></div>
+                        </div>
+                        <div id="ifevalSection" style="display:none;">
+                            <span class="text-[10px] font-bold text-slate-400 block mb-1">IFEVAL KWARGS</span>
+                            <div id="argList" class="text-[10px] bg-slate-50 p-2 rounded font-mono break-all text-slate-600"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <h3 class="text-xs font-bold text-blue-800 mb-2">Workflow Guide</h3>
+                    <p class="text-[11px] text-blue-700 leading-relaxed mb-2">
+                        1. Look at <strong>Original Prompt</strong>.
+                        <br>2. Extract core intent to <strong>Task</strong>.
+                        <br>3. Extract constraints to <strong>Rules</strong>.
+                        <br>4. <strong>Generate</strong> to move to next pending.
+                    </p>
+                    <p class="text-[10px] text-blue-400 italic">Progress is saved in browser memory until Export.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let items = [];
+        let cur = -1;
+
+        document.getElementById('fileInput').addEventListener('change', e => {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                items = JSON.parse(ev.target.result);
+                renderList();
+                // Find first pending item
+                const firstPending = items.findIndex(i => i.status !== 'done');
+                load(firstPending !== -1 ? firstPending : 0);
+                document.getElementById('workspace').style.display = 'block';
+                document.getElementById('metadataSidebar').style.display = 'block';
+            };
+            reader.readAsText(e.target.files[0]);
+        });
+
+        function renderList() {
+            const list = document.getElementById('entryList');
+            const showOnlyPending = document.getElementById('filterPending').checked;
+            list.innerHTML = '';
+            let doneCount = 0;
+
+            items.forEach((item, i) => {
+                const isDone = item.status === 'done';
+                if(isDone) doneCount++;
+
+                if(showOnlyPending && isDone) return;
+
+                const d = document.createElement('div');
+                const statusClass = isDone ? 'status-done' : 'status-pending';
+                const activeClass = cur === i ? 'active-card' : '';
+
+                d.className = `p-3 cursor-pointer hover:bg-slate-50 transition ${statusClass} ${activeClass}`;
+                d.onclick = () => load(i);
+                d.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[10px] font-bold ${isDone ? 'text-emerald-600' : 'text-amber-600'}">#${item.key}</span>
+                        <span class="text-[9px] font-bold text-slate-400 uppercase">${isDone ? 'Finished' : 'Pending'}</span>
+                    </div>
+                    <div class="text-xs truncate text-slate-600">${item.original_prompt}</div>
+                `;
+                list.appendChild(d);
+            });
+            document.getElementById('stats').innerText = `${doneCount} / ${items.length} Completed`;
+        }
+
+        function load(i) {
+            if (i < 0 || i >= items.length) return;
+            cur = i;
+            const item = items[i];
+
+            document.getElementById('originalPromptText').innerText = item.original_prompt;
+            document.getElementById('taskInput').value = item.task_content || "";
+            document.getElementById('rulesInput').value = (item.rules_content || []).join('\n');
+
+            const isIFBench = item.instruction_id_list.some(id => id.includes('count:keywords'));
+            const badge = document.getElementById('typeBadge');
+            badge.innerText = isIFBench ? 'IFBench' : 'IFEval';
+            badge.className = isIFBench ? 'text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-purple-100 text-purple-700' : 'text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700';
+
+            const idList = document.getElementById('idList');
+            idList.innerHTML = item.instruction_id_list.map(id => `<span class="logic-pill">${id}</span>`).join('');
+
+            const kwSect = document.getElementById('keywordSection');
+            const ifSect = document.getElementById('ifevalSection');
+
+            if(isIFBench) {
+                kwSect.style.display = 'block';
+                ifSect.style.display = 'none';
+                const kwList = document.getElementById('kwList');
+                kwList.innerHTML = '';
+                const k = (item.kwargs && item.kwargs[0]) ? item.kwargs[0] : {};
+                for(let key in k) {
+                    if(key.startsWith('keyword') && k[key]) {
+                        kwList.innerHTML += `<span class="bg-purple-50 text-purple-700 border border-purple-200 px-2 py-1 rounded text-[10px] font-bold">${k[key]}</span>`;
+                    }
+                }
+            } else {
+                kwSect.style.display = 'none';
+                ifSect.style.display = 'block';
+                document.getElementById('argList').innerText = JSON.stringify(item.kwargs);
+            }
+
+            updatePrev();
+            renderList();
+        }
+
+        function saveAndGenerate() {
+            const t = document.getElementById('taskInput').value;
+            const r = document.getElementById('rulesInput').value.split('\n').filter(x => x.trim());
+            if(!t) return;
+
+            items[cur].task_content = t;
+            items[cur].rules_content = r;
+            items[cur].status = 'done';
+
+            items[cur].variations = {
+                xml: `<prompt>\n  <task>${t}</task>\n  <constraints>\n${r.map(rule => `    <rule>${rule}</rule>`).join('\n')}\n  </constraints>\n</prompt>`,
+                json: JSON.stringify({ task: t, constraints: r }, null, 2),
+                markdown: `# Task\n${t}\n\n## Constraints\n${r.map(rule => `* ${rule}`).join('\n')}`,
+                yaml: `task: "${t}"\nconstraints:\n${r.map(rule => `  - "${rule}"`).join('\n')}`,
+                plain: `Task: ${t}\n\nRules:\n${r.map((rule, idx) => `${idx+1}. ${rule}`).join('\n')}`
+            };
+
+            // Automatically move to the next pending item
+            const nextPending = items.findIndex((item, index) => index > cur && item.status !== 'done');
+            if (nextPending !== -1) {
+                load(nextPending);
+            } else {
+                updatePrev();
+                renderList();
+            }
+        }
+
+        function skipEntry() {
+            const next = cur + 1;
+            if (next < items.length) load(next);
+        }
+
+        function updatePrev() {
+            const v = items[cur].variations || {};
+            document.getElementById('xmlPrev').innerText = v.xml || '';
+            document.getElementById('jsonPrev').innerText = v.json || '';
+        }
+
+        function downloadJSON() {
+            const blob = new Blob([JSON.stringify(items, null, 2)], {type: 'application/json'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `universal_master_refined.json`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
