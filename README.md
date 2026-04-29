@@ -1,6 +1,6 @@
 # LLMTermProject
 
-This project studies instruction-following behavior across multiple prompt formats (`plain`, `markdown`, `xml`, `json`, `yaml`) and compares performance under two benchmarks: IFEval and IFBench.
+This project studies instruction-following behavior across multiple prompt formats (`plain`, `markdown`, `xml`, `json`, `yaml`) and compares performance under two benchmarks: IFEval and IFBench. You can find more detailed report in `LLMTermProject_Report.pdf`.
 
 ## Problem And Approach
 
